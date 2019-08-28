@@ -117,7 +117,113 @@ parcelRequire = (function (modules, cache, entry, globalName) {
   }
 
   return newRequire;
-})({"src/models/Eventing.ts":[function(require,module,exports) {
+})({"src/models/Model.ts":[function(require,module,exports) {
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var Model =
+/** @class */
+function () {
+  function Model(attributes, events, sync) {
+    this.attributes = attributes;
+    this.events = events;
+    this.sync = sync;
+  }
+
+  Object.defineProperty(Model.prototype, "on", {
+    get: function get() {
+      return this.events.on;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(Model.prototype, "trigger", {
+    get: function get() {
+      return this.events.trigger;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(Model.prototype, "get", {
+    // black eyed peas say boom, boom, pow
+    get: function get() {
+      return this.attributes.get;
+    },
+    enumerable: true,
+    configurable: true
+  });
+
+  Model.prototype.set = function (update) {
+    this.attributes.set(update);
+    this.events.trigger("change");
+  };
+
+  Model.prototype.fetch = function () {
+    var _this = this;
+
+    var id = this.get("id");
+
+    if (typeof id !== "number") {
+      throw new Error("Cannot fetch without an id");
+    }
+
+    this.sync.fetch(id).then(function (response) {
+      _this.set(response.data);
+    });
+  };
+
+  Model.prototype.save = function () {
+    var _this = this;
+
+    var data = this.attributes.getAll();
+    this.sync.save(data).then(function (response) {
+      _this.events.trigger("save");
+    });
+  };
+
+  return Model;
+}();
+
+exports.Model = Model;
+},{}],"src/models/Attributes.ts":[function(require,module,exports) {
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var Attributes =
+/** @class */
+function () {
+  function Attributes(data) {
+    var _this = this;
+
+    this.data = data; // where to put the = after the function name is confusing
+    // after the angle brackets? before?
+
+    this.get = function (propName) {
+      return _this.data[propName];
+    };
+
+    this.getAll = function () {
+      return _this.data;
+    };
+  }
+
+  Attributes.prototype.set = function (update) {
+    // this.data = { ...this.data, ...update };
+    // OR, not completely equivalent
+    Object.assign(this.data, update);
+  };
+
+  return Attributes;
+}();
+
+exports.Attributes = Attributes;
+},{}],"src/models/Eventing.ts":[function(require,module,exports) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -128,23 +234,25 @@ var Eventing =
 /** @class */
 function () {
   function Eventing() {
+    var _this = this;
+
     this.events = {};
+
+    this.on = function (eventName, callback) {
+      var handlers = _this.events[eventName] || [];
+      handlers.push(callback); // only needed if this.events[eventName] was undefined, .push mutates
+
+      _this.events[eventName] = handlers;
+    };
+
+    this.trigger = function (eventName) {
+      var handlers = _this.events[eventName] || []; // perf improvement: early return if no handlers or empty array
+
+      handlers.forEach(function (handler) {
+        return handler();
+      });
+    };
   }
-
-  Eventing.prototype.on = function (eventName, callback) {
-    var handlers = this.events[eventName] || [];
-    handlers.push(callback); // only needed if this.events[eventName] is undefined, .push mutates
-
-    this.events[eventName] = handlers;
-  };
-
-  Eventing.prototype.trigger = function (eventName) {
-    var handlers = this.events[eventName] || []; // perf improvement: early return if no handlers or empty array
-
-    handlers.forEach(function (handler) {
-      return handler();
-    });
-  };
 
   return Eventing;
 }();
@@ -1863,7 +1971,7 @@ module.exports.default = axios;
 
 },{"./utils":"node_modules/axios/lib/utils.js","./helpers/bind":"node_modules/axios/lib/helpers/bind.js","./core/Axios":"node_modules/axios/lib/core/Axios.js","./core/mergeConfig":"node_modules/axios/lib/core/mergeConfig.js","./defaults":"node_modules/axios/lib/defaults.js","./cancel/Cancel":"node_modules/axios/lib/cancel/Cancel.js","./cancel/CancelToken":"node_modules/axios/lib/cancel/CancelToken.js","./cancel/isCancel":"node_modules/axios/lib/cancel/isCancel.js","./helpers/spread":"node_modules/axios/lib/helpers/spread.js"}],"node_modules/axios/index.js":[function(require,module,exports) {
 module.exports = require('./lib/axios');
-},{"./lib/axios":"node_modules/axios/lib/axios.js"}],"src/models/Sync.ts":[function(require,module,exports) {
+},{"./lib/axios":"node_modules/axios/lib/axios.js"}],"src/models/ApiSync.ts":[function(require,module,exports) {
 "use strict";
 
 var __importDefault = this && this.__importDefault || function (mod) {
@@ -1878,18 +1986,18 @@ Object.defineProperty(exports, "__esModule", {
 
 var axios_1 = __importDefault(require("axios"));
 
-var Sync =
+var ApiSync =
 /** @class */
 function () {
-  function Sync(rootUrl) {
+  function ApiSync(rootUrl) {
     this.rootUrl = rootUrl;
   }
 
-  Sync.prototype.fetch = function (id) {
+  ApiSync.prototype.fetch = function (id) {
     return axios_1.default.get(this.rootUrl + "/" + id);
   };
 
-  Sync.prototype.save = function (data) {
+  ApiSync.prototype.save = function (data) {
     var id = data.id;
 
     if (id) {
@@ -1899,12 +2007,18 @@ function () {
     }
   };
 
-  return Sync;
+  return ApiSync;
 }();
 
-exports.Sync = Sync;
-},{"axios":"node_modules/axios/index.js"}],"src/models/User.ts":[function(require,module,exports) {
+exports.ApiSync = ApiSync;
+},{"axios":"node_modules/axios/index.js"}],"src/models/Collection.ts":[function(require,module,exports) {
 "use strict";
+
+var __importDefault = this && this.__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
 
 Object.defineProperty(exports, "__esModule", {
   value: true
@@ -1912,473 +2026,357 @@ Object.defineProperty(exports, "__esModule", {
 
 var Eventing_1 = require("./Eventing");
 
-var Sync_1 = require("./Sync"); // type ValueOf<T> = T[keyof T];
+var axios_1 = __importDefault(require("axios"));
 
+var Collection =
+/** @class */
+function () {
+  function Collection(rootUrl, deserialize) {
+    this.rootUrl = rootUrl;
+    this.deserialize = deserialize;
+    this.models = [];
+    this.events = new Eventing_1.Eventing();
+  }
 
-var rootUrl = "http://192.168.4.231:3000" + "/users";
+  Object.defineProperty(Collection.prototype, "on", {
+    get: function get() {
+      return this.events.on;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(Collection.prototype, "trigger", {
+    get: function get() {
+      return this.events.trigger;
+    },
+    enumerable: true,
+    configurable: true
+  });
+
+  Collection.prototype.fetch = function () {
+    var _this = this;
+
+    axios_1.default.get(this.rootUrl).then(function (response) {
+      response.data.forEach(function (value) {
+        var model = _this.deserialize(value);
+
+        _this.models.push(model);
+      });
+
+      _this.trigger("change");
+    });
+  };
+
+  return Collection;
+}();
+
+exports.Collection = Collection;
+},{"./Eventing":"src/models/Eventing.ts","axios":"node_modules/axios/index.js"}],"src/models/User.ts":[function(require,module,exports) {
+"use strict";
+
+var __extends = this && this.__extends || function () {
+  var _extendStatics = function extendStatics(d, b) {
+    _extendStatics = Object.setPrototypeOf || {
+      __proto__: []
+    } instanceof Array && function (d, b) {
+      d.__proto__ = b;
+    } || function (d, b) {
+      for (var p in b) {
+        if (b.hasOwnProperty(p)) d[p] = b[p];
+      }
+    };
+
+    return _extendStatics(d, b);
+  };
+
+  return function (d, b) {
+    _extendStatics(d, b);
+
+    function __() {
+      this.constructor = d;
+    }
+
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+  };
+}();
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var Model_1 = require("./Model");
+
+var Attributes_1 = require("./Attributes");
+
+var Eventing_1 = require("./Eventing");
+
+var ApiSync_1 = require("./ApiSync");
+
+var Collection_1 = require("./Collection");
+
+var rootUrl = "http://localhost:3000" + "/users"; // const rootUrl = `http://localhost:3000/users`;
 
 var User =
 /** @class */
-function () {
-  function User(data) {
-    this.data = data;
-    this.events = new Eventing_1.Eventing();
-    this.sync = new Sync_1.Sync(rootUrl);
+function (_super) {
+  __extends(User, _super);
+
+  function User() {
+    return _super !== null && _super.apply(this, arguments) || this;
   }
 
-  User.prototype.get = function (propName) {
-    return this.data[propName];
+  User.buildUser = function (attr) {
+    // no need to pass UserProps here as generic type, TypeScript is wicked smaht
+    return new User(new Attributes_1.Attributes(attr), new Eventing_1.Eventing(), new ApiSync_1.ApiSync(rootUrl));
   };
 
-  User.prototype.set = function (update) {
-    // this.data = { ...this.data, ...update };
-    // OR, not completely equivalent
-    Object.assign(this.data, update);
+  User.buildUserCollection = function () {
+    new Collection_1.Collection(rootUrl, function (json) {
+      return User.buildUser(json);
+    });
+  }; // doesn't need to call super() in the constructor if no constructor is defined
+  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/constructor#Default_constructors
+
+
+  User.prototype.setRandomAge = function () {
+    var age = Math.round(Math.random() * 100);
+    this.set({
+      age: age
+    });
   };
 
   return User;
-}();
+}(Model_1.Model);
 
 exports.User = User;
-},{"./Eventing":"src/models/Eventing.ts","./Sync":"src/models/Sync.ts"}],"node_modules/parcel-bundler/src/builtins/_empty.js":[function(require,module,exports) {
+},{"./Model":"src/models/Model.ts","./Attributes":"src/models/Attributes.ts","./Eventing":"src/models/Eventing.ts","./ApiSync":"src/models/ApiSync.ts","./Collection":"src/models/Collection.ts"}],"src/views/CollectionView.ts":[function(require,module,exports) {
+"use strict";
 
-},{}],"node_modules/path-browserify/index.js":[function(require,module,exports) {
-var process = require("process");
-// .dirname, .basename, and .extname methods are extracted from Node.js v8.11.1,
-// backported and transplited with Babel, with backwards-compat fixes
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
 
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// resolves . and .. elements in a path array with directory names there
-// must be no slashes, empty elements, or device names (c:\) in the array
-// (so also no leading and trailing slashes - it does not distinguish
-// relative and absolute paths)
-function normalizeArray(parts, allowAboveRoot) {
-  // if the path tries to go above the root, `up` ends up > 0
-  var up = 0;
-  for (var i = parts.length - 1; i >= 0; i--) {
-    var last = parts[i];
-    if (last === '.') {
-      parts.splice(i, 1);
-    } else if (last === '..') {
-      parts.splice(i, 1);
-      up++;
-    } else if (up) {
-      parts.splice(i, 1);
-      up--;
-    }
+var CollectionView =
+/** @class */
+function () {
+  function CollectionView(parent, collection) {
+    this.parent = parent;
+    this.collection = collection;
   }
 
-  // if the path is allowed to go above the root, restore leading ..s
-  if (allowAboveRoot) {
-    for (; up--; up) {
-      parts.unshift('..');
-    }
-  }
+  CollectionView.prototype.render = function () {
+    var _this = this;
 
-  return parts;
-}
+    this.parent.innerHTML = "";
+    var templateElement = document.createElement("template");
+    this.collection.models.forEach(function (model) {
+      var itemParent = document.createElement("div");
 
-// path.resolve([from ...], to)
-// posix version
-exports.resolve = function() {
-  var resolvedPath = '',
-      resolvedAbsolute = false;
+      _this.renderItem(model, itemParent);
 
-  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
-    var path = (i >= 0) ? arguments[i] : process.cwd();
-
-    // Skip empty and invalid entries
-    if (typeof path !== 'string') {
-      throw new TypeError('Arguments to path.resolve must be strings');
-    } else if (!path) {
-      continue;
-    }
-
-    resolvedPath = path + '/' + resolvedPath;
-    resolvedAbsolute = path.charAt(0) === '/';
-  }
-
-  // At this point the path should be resolved to a full absolute path, but
-  // handle relative paths to be safe (might happen when process.cwd() fails)
-
-  // Normalize the path
-  resolvedPath = normalizeArray(filter(resolvedPath.split('/'), function(p) {
-    return !!p;
-  }), !resolvedAbsolute).join('/');
-
-  return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
-};
-
-// path.normalize(path)
-// posix version
-exports.normalize = function(path) {
-  var isAbsolute = exports.isAbsolute(path),
-      trailingSlash = substr(path, -1) === '/';
-
-  // Normalize the path
-  path = normalizeArray(filter(path.split('/'), function(p) {
-    return !!p;
-  }), !isAbsolute).join('/');
-
-  if (!path && !isAbsolute) {
-    path = '.';
-  }
-  if (path && trailingSlash) {
-    path += '/';
-  }
-
-  return (isAbsolute ? '/' : '') + path;
-};
-
-// posix version
-exports.isAbsolute = function(path) {
-  return path.charAt(0) === '/';
-};
-
-// posix version
-exports.join = function() {
-  var paths = Array.prototype.slice.call(arguments, 0);
-  return exports.normalize(filter(paths, function(p, index) {
-    if (typeof p !== 'string') {
-      throw new TypeError('Arguments to path.join must be strings');
-    }
-    return p;
-  }).join('/'));
-};
-
-
-// path.relative(from, to)
-// posix version
-exports.relative = function(from, to) {
-  from = exports.resolve(from).substr(1);
-  to = exports.resolve(to).substr(1);
-
-  function trim(arr) {
-    var start = 0;
-    for (; start < arr.length; start++) {
-      if (arr[start] !== '') break;
-    }
-
-    var end = arr.length - 1;
-    for (; end >= 0; end--) {
-      if (arr[end] !== '') break;
-    }
-
-    if (start > end) return [];
-    return arr.slice(start, end - start + 1);
-  }
-
-  var fromParts = trim(from.split('/'));
-  var toParts = trim(to.split('/'));
-
-  var length = Math.min(fromParts.length, toParts.length);
-  var samePartsLength = length;
-  for (var i = 0; i < length; i++) {
-    if (fromParts[i] !== toParts[i]) {
-      samePartsLength = i;
-      break;
-    }
-  }
-
-  var outputParts = [];
-  for (var i = samePartsLength; i < fromParts.length; i++) {
-    outputParts.push('..');
-  }
-
-  outputParts = outputParts.concat(toParts.slice(samePartsLength));
-
-  return outputParts.join('/');
-};
-
-exports.sep = '/';
-exports.delimiter = ':';
-
-exports.dirname = function (path) {
-  if (typeof path !== 'string') path = path + '';
-  if (path.length === 0) return '.';
-  var code = path.charCodeAt(0);
-  var hasRoot = code === 47 /*/*/;
-  var end = -1;
-  var matchedSlash = true;
-  for (var i = path.length - 1; i >= 1; --i) {
-    code = path.charCodeAt(i);
-    if (code === 47 /*/*/) {
-        if (!matchedSlash) {
-          end = i;
-          break;
-        }
-      } else {
-      // We saw the first non-path separator
-      matchedSlash = false;
-    }
-  }
-
-  if (end === -1) return hasRoot ? '/' : '.';
-  if (hasRoot && end === 1) {
-    // return '//';
-    // Backwards-compat fix:
-    return '/';
-  }
-  return path.slice(0, end);
-};
-
-function basename(path) {
-  if (typeof path !== 'string') path = path + '';
-
-  var start = 0;
-  var end = -1;
-  var matchedSlash = true;
-  var i;
-
-  for (i = path.length - 1; i >= 0; --i) {
-    if (path.charCodeAt(i) === 47 /*/*/) {
-        // If we reached a path separator that was not part of a set of path
-        // separators at the end of the string, stop now
-        if (!matchedSlash) {
-          start = i + 1;
-          break;
-        }
-      } else if (end === -1) {
-      // We saw the first non-path separator, mark this as the end of our
-      // path component
-      matchedSlash = false;
-      end = i + 1;
-    }
-  }
-
-  if (end === -1) return '';
-  return path.slice(start, end);
-}
-
-// Uses a mixed approach for backwards-compatibility, as ext behavior changed
-// in new Node.js versions, so only basename() above is backported here
-exports.basename = function (path, ext) {
-  var f = basename(path);
-  if (ext && f.substr(-1 * ext.length) === ext) {
-    f = f.substr(0, f.length - ext.length);
-  }
-  return f;
-};
-
-exports.extname = function (path) {
-  if (typeof path !== 'string') path = path + '';
-  var startDot = -1;
-  var startPart = 0;
-  var end = -1;
-  var matchedSlash = true;
-  // Track the state of characters (if any) we see before our first dot and
-  // after any path separator we find
-  var preDotState = 0;
-  for (var i = path.length - 1; i >= 0; --i) {
-    var code = path.charCodeAt(i);
-    if (code === 47 /*/*/) {
-        // If we reached a path separator that was not part of a set of path
-        // separators at the end of the string, stop now
-        if (!matchedSlash) {
-          startPart = i + 1;
-          break;
-        }
-        continue;
-      }
-    if (end === -1) {
-      // We saw the first non-path separator, mark this as the end of our
-      // extension
-      matchedSlash = false;
-      end = i + 1;
-    }
-    if (code === 46 /*.*/) {
-        // If this is our first dot, mark it as the start of our extension
-        if (startDot === -1)
-          startDot = i;
-        else if (preDotState !== 1)
-          preDotState = 1;
-    } else if (startDot !== -1) {
-      // We saw a non-dot and non-path separator before our dot, so we should
-      // have a good chance at having a non-empty extension
-      preDotState = -1;
-    }
-  }
-
-  if (startDot === -1 || end === -1 ||
-      // We saw a non-dot character immediately before the dot
-      preDotState === 0 ||
-      // The (right-most) trimmed path component is exactly '..'
-      preDotState === 1 && startDot === end - 1 && startDot === startPart + 1) {
-    return '';
-  }
-  return path.slice(startDot, end);
-};
-
-function filter (xs, f) {
-    if (xs.filter) return xs.filter(f);
-    var res = [];
-    for (var i = 0; i < xs.length; i++) {
-        if (f(xs[i], i, xs)) res.push(xs[i]);
-    }
-    return res;
-}
-
-// String.prototype.substr - negative index don't work in IE8
-var substr = 'ab'.substr(-1) === 'b'
-    ? function (str, start, len) { return str.substr(start, len) }
-    : function (str, start, len) {
-        if (start < 0) start = str.length + start;
-        return str.substr(start, len);
-    }
-;
-
-},{"process":"node_modules/process/browser.js"}],"node_modules/dotenv/lib/main.js":[function(require,module,exports) {
-var process = require("process");
-/*::
-
-type DotenvParseOptions = {
-  debug?: boolean
-}
-
-// keys and values from src
-type DotenvParseOutput = { [string]: string }
-
-type DotenvConfigOptions = {
-  path?: string, // path to .env file
-  encoding?: string, // encoding of .env file
-  debug?: string // turn on logging for debugging purposes
-}
-
-type DotenvConfigOutput = {
-  parsed?: DotenvParseOutput,
-  error?: Error
-}
-
-*/
-var fs = require('fs');
-
-var path = require('path');
-
-function log(message
-/*: string */
-) {
-  console.log("[dotenv][DEBUG] ".concat(message));
-}
-
-var NEWLINE = '\n';
-var RE_INI_KEY_VAL = /^\s*([\w.-]+)\s*=\s*(.*)?\s*$/;
-var RE_NEWLINES = /\\n/g; // Parses src into an Object
-
-function parse(src
-/*: string | Buffer */
-, options
-/*: ?DotenvParseOptions */
-)
-/*: DotenvParseOutput */
-{
-  var debug = Boolean(options && options.debug);
-  var obj = {}; // convert Buffers before splitting into lines and processing
-
-  src.toString().split(NEWLINE).forEach(function (line, idx) {
-    // matching "KEY' and 'VAL' in 'KEY=VAL'
-    var keyValueArr = line.match(RE_INI_KEY_VAL); // matched?
-
-    if (keyValueArr != null) {
-      var key = keyValueArr[1]; // default undefined or missing values to empty string
-
-      var val = keyValueArr[2] || '';
-      var end = val.length - 1;
-      var isDoubleQuoted = val[0] === '"' && val[end] === '"';
-      var isSingleQuoted = val[0] === "'" && val[end] === "'"; // if single or double quoted, remove quotes
-
-      if (isSingleQuoted || isDoubleQuoted) {
-        val = val.substring(1, end); // if double quoted, expand newlines
-
-        if (isDoubleQuoted) {
-          val = val.replace(RE_NEWLINES, NEWLINE);
-        }
-      } else {
-        // remove surrounding whitespace
-        val = val.trim();
-      }
-
-      obj[key] = val;
-    } else if (debug) {
-      log("did not match key and value when parsing line ".concat(idx + 1, ": ").concat(line));
-    }
-  });
-  return obj;
-} // Populates process.env from .env file
-
-
-function config(options
-/*: ?DotenvConfigOptions */
-)
-/*: DotenvConfigOutput */
-{
-  var dotenvPath = path.resolve(process.cwd(), '.env');
-  var encoding
-  /*: string */
-  = 'utf8';
-  var debug = false;
-
-  if (options) {
-    if (options.path != null) {
-      dotenvPath = options.path;
-    }
-
-    if (options.encoding != null) {
-      encoding = options.encoding;
-    }
-
-    if (options.debug != null) {
-      debug = true;
-    }
-  }
-
-  try {
-    // specifying an encoding returns a string instead of a buffer
-    var parsed = parse(fs.readFileSync(dotenvPath, {
-      encoding: encoding
-    }), {
-      debug: debug
+      templateElement.content.append(itemParent);
     });
-    Object.keys(parsed).forEach(function (key) {
-      if (!process.env.hasOwnProperty(key)) {
-        process.env[key] = parsed[key];
-      } else if (debug) {
-        log("\"".concat(key, "\" is already defined in `process.env` and will not be overwritten"));
+    this.parent.append(templateElement.content);
+  };
+
+  return CollectionView;
+}();
+
+exports.CollectionView = CollectionView;
+},{}],"src/views/View.ts":[function(require,module,exports) {
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+}); // that funky generic syntax reads like this:
+// View expects a generic type of Model (or something that extends it)
+// but Model expects a generic type as well
+// the generic type passed to Model will come from the second generic type passed to View
+
+var View =
+/** @class */
+function () {
+  function View(parent, model) {
+    this.parent = parent;
+    this.model = model;
+    this.regions = {};
+    this.bindModel(); // the code below errors because of my favourite JavaScript thing, this 'this' value
+    // model.on("change", this.render);
+  }
+
+  View.prototype.regionsMap = function () {
+    return {};
+  };
+
+  View.prototype.eventsMap = function () {
+    return {};
+  };
+
+  View.prototype.bindModel = function () {
+    var _this = this;
+
+    this.model.on("change", function () {
+      _this.render();
+    });
+  };
+
+  View.prototype.bindEvents = function (fragment) {
+    var eventsMap = this.eventsMap();
+    Object.entries(eventsMap).forEach(function (_a) {
+      var key = _a[0],
+          value = _a[1];
+
+      var _b = key.split(":"),
+          eventName = _b[0],
+          selector = _b[1];
+
+      var elements = fragment.querySelectorAll(selector);
+      elements.forEach(function (element) {
+        element.addEventListener(eventName, value);
+      });
+    });
+  };
+
+  View.prototype.mapRegions = function (fragment) {
+    var _this = this;
+
+    var regionsMap = this.regionsMap();
+    Object.entries(regionsMap).forEach(function (_a) {
+      var key = _a[0],
+          value = _a[1];
+      var element = fragment.querySelector(value);
+
+      if (element) {
+        _this.regions[key] = element;
       }
     });
-    return {
-      parsed: parsed
-    };
-  } catch (e) {
-    return {
-      error: e
-    };
-  }
-}
+  };
 
-module.exports.config = config;
-module.exports.parse = parse;
-},{"fs":"node_modules/parcel-bundler/src/builtins/_empty.js","path":"node_modules/path-browserify/index.js","process":"node_modules/process/browser.js"}],"src/index.ts":[function(require,module,exports) {
-var __dirname = "/home/nicky/projects/typescript-stephen-grider/web/src";
+  View.prototype.onRender = function () {};
+
+  View.prototype.render = function () {
+    this.parent.innerHTML = "";
+    var templateElement = document.createElement("template");
+    templateElement.innerHTML = this.template();
+    var fragment = templateElement.content;
+    this.bindEvents(fragment);
+    this.mapRegions(fragment);
+    this.onRender();
+    this.parent.append(fragment);
+  };
+
+  return View;
+}();
+
+exports.View = View;
+},{}],"src/views/UserShow.ts":[function(require,module,exports) {
+"use strict";
+
+var __extends = this && this.__extends || function () {
+  var _extendStatics = function extendStatics(d, b) {
+    _extendStatics = Object.setPrototypeOf || {
+      __proto__: []
+    } instanceof Array && function (d, b) {
+      d.__proto__ = b;
+    } || function (d, b) {
+      for (var p in b) {
+        if (b.hasOwnProperty(p)) d[p] = b[p];
+      }
+    };
+
+    return _extendStatics(d, b);
+  };
+
+  return function (d, b) {
+    _extendStatics(d, b);
+
+    function __() {
+      this.constructor = d;
+    }
+
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+  };
+}();
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var View_1 = require("./View");
+
+var UserShow =
+/** @class */
+function (_super) {
+  __extends(UserShow, _super);
+
+  function UserShow() {
+    return _super !== null && _super.apply(this, arguments) || this;
+  }
+
+  UserShow.prototype.template = function () {
+    return "\n        <div>\n        <h1>User Detail</h1>\n        <div>User name: " + this.model.get("name") + "</div>\n        <div>User age: " + this.model.get("age") + "</div>\n        </div>\n        ";
+  };
+
+  return UserShow;
+}(View_1.View);
+
+exports.UserShow = UserShow;
+},{"./View":"src/views/View.ts"}],"src/views/UserList.ts":[function(require,module,exports) {
+"use strict";
+
+var __extends = this && this.__extends || function () {
+  var _extendStatics = function extendStatics(d, b) {
+    _extendStatics = Object.setPrototypeOf || {
+      __proto__: []
+    } instanceof Array && function (d, b) {
+      d.__proto__ = b;
+    } || function (d, b) {
+      for (var p in b) {
+        if (b.hasOwnProperty(p)) d[p] = b[p];
+      }
+    };
+
+    return _extendStatics(d, b);
+  };
+
+  return function (d, b) {
+    _extendStatics(d, b);
+
+    function __() {
+      this.constructor = d;
+    }
+
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+  };
+}();
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var CollectionView_1 = require("./CollectionView");
+
+var UserShow_1 = require("./UserShow");
+
+var UserList =
+/** @class */
+function (_super) {
+  __extends(UserList, _super);
+
+  function UserList() {
+    return _super !== null && _super.apply(this, arguments) || this;
+  }
+
+  UserList.prototype.renderItem = function (model, itemParent) {
+    var userShow = new UserShow_1.UserShow(itemParent, model);
+    userShow.render();
+  };
+
+  return UserList;
+}(CollectionView_1.CollectionView);
+
+exports.UserList = UserList;
+},{"./CollectionView":"src/views/CollectionView.ts","./UserShow":"src/views/UserShow.ts"}],"src/index.ts":[function(require,module,exports) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -2387,26 +2385,39 @@ Object.defineProperty(exports, "__esModule", {
 
 var User_1 = require("./models/User");
 
-var dotenv_1 = require("dotenv");
+var Collection_1 = require("./models/Collection");
 
-var path_1 = require("path");
+var UserList_1 = require("./views/UserList"); // declare global {
+//   namespace NodeJS {
+//     interface ProcessEnv {
+//       BACKEND_URL: string;
+//     }
+//   }
+// }
+// causes "Cannot statically evaluate fs argument" error
+// config({ path: resolve(__dirname, "../.env") });
+// so parcel-bundler already includes support for env vars and this isn't needed
+// const user = User.buildUser({ name: "Bob", age: 40 });
+// const root = document.getElementById("root");
+// if (root) {
+//   const userEdit = new UserEdit(root, user);
+//   userEdit.render();
+// }
 
-dotenv_1.config({
-  path: path_1.resolve(__dirname, "../.env")
+
+var users = new Collection_1.Collection("http://localhost:3000" + "/users", function (json) {
+  return User_1.User.buildUser(json);
 });
-var me = new User_1.User({
-  age: 28,
-  name: "Nicky"
+users.on("change", function () {
+  var root = document.getElementById("root");
+
+  if (root) {
+    var userList = new UserList_1.UserList(root, users);
+    userList.render();
+  }
 });
-me.events.on("hey", function () {
-  return console.log("ejjj");
-});
-me.events.on("hey", function () {
-  return console.log("sdfejjj");
-});
-me.save();
-me.events.trigger("hey");
-},{"./models/User":"src/models/User.ts","dotenv":"node_modules/dotenv/lib/main.js","path":"node_modules/path-browserify/index.js"}],"node_modules/parcel-bundler/src/builtins/hmr-runtime.js":[function(require,module,exports) {
+users.fetch();
+},{"./models/User":"src/models/User.ts","./models/Collection":"src/models/Collection.ts","./views/UserList":"src/views/UserList.ts"}],"node_modules/parcel-bundler/src/builtins/hmr-runtime.js":[function(require,module,exports) {
 var global = arguments[3];
 var OVERLAY_ID = '__parcel__error__overlay__';
 var OldModule = module.bundle.Module;
@@ -2434,7 +2445,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "39379" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "43877" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};

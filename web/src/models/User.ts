@@ -1,58 +1,33 @@
-import { Eventing } from "./Eventing";
-import { Sync } from "./Sync";
+import { Model } from "./Model";
 import { Attributes } from "./Attributes";
-import { AxiosResponse } from "axios";
+import { Eventing } from "./Eventing";
+import { ApiSync } from "./ApiSync";
+import { Collection } from "./Collection";
 
 export interface UserProps {
   id?: number;
   name?: string;
   age?: number;
 }
-// type ValueOf<T> = T[keyof T];
 
 const rootUrl = `${process.env.BACKEND_URL}/users`;
+// const rootUrl = `http://localhost:3000/users`;
 
-export class User {
-  public events: Eventing = new Eventing();
-  public sync: Sync<UserProps> = new Sync<UserProps>(rootUrl);
-  public attributes: Attributes<UserProps>;
-
-  constructor(attrs: UserProps) {
-    this.attributes = new Attributes<UserProps>(attrs);
+export class User extends Model<UserProps> {
+  static buildUser(attr: UserProps): User {
+    // no need to pass UserProps here as generic type, TypeScript is wicked smaht
+    return new User(new Attributes(attr), new Eventing(), new ApiSync(rootUrl));
   }
 
-  get on() {
-    return this.events.on;
+  static buildUserCollection() {
+    new Collection<User, UserProps>(rootUrl, json => User.buildUser(json));
   }
 
-  get trigger() {
-    return this.events.trigger;
-  }
+  // doesn't need to call super() in the constructor if no constructor is defined
+  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/constructor#Default_constructors
 
-  // black eyed peas say boom, boom, pow
-  get get() {
-    return this.attributes.get;
-  }
-
-  set(update: UserProps): void {
-    this.attributes.set(update);
-    this.events.trigger("change");
-  }
-
-  fetch(): void {
-    const id = this.get("id");
-    if (typeof id !== "number") {
-      throw new Error("Cannot fetch without an id");
-    }
-    this.sync.fetch(id).then(response => {
-      this.set(response.data);
-    });
-  }
-
-  save(): void {
-    const data = this.attributes.getAll();
-    this.sync.save(data).then(response => {
-      this.events.trigger("save");
-    });
+  setRandomAge() {
+    const age = Math.round(Math.random() * 100);
+    this.set({ age });
   }
 }
