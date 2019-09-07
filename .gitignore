@@ -1,3 +1,8 @@
 node_modules
 .cache
 .env
+map/dist
+server/build
+sort/build
+stats/build
+web/dist
